@@ -72,9 +72,10 @@ impl RemoteCall {
 unsafe impl Send for RemoteCall {
 }
 
+#[macro_export]
 macro_rules! remote {
     ($name:ident ( ) -> $result:ident $body:block) => {{
-        use types::*;
+        use simple_soap::types::*;
 
         let args = vec![
         ];

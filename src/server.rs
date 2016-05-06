@@ -34,9 +34,9 @@ impl Server {
         }
     }
 
-    pub fn register(&mut self, name: &str, call: RemoteCall) {
+    pub fn register(&mut self, call: RemoteCall) {
         let mut calls = self.calls.lock().unwrap();
-        calls.insert(name.to_string(), call);
+        calls.insert(call.name.clone(), call);
     }
 
     pub fn start(&self) -> Result<(), SoapError> {
@@ -88,18 +88,3 @@ fn show_wsdl(calls: &HashMap<String, RemoteCall>) -> String {
     result
 }
 
-#[cfg(test)]
-mod test {
-    use super::Server;
-
-    #[test]
-    fn main() {
-        let mut server = Server::new("0.0.0.0:1337");
-        server.register("call", remote! {
-            hello() -> Void {
-                println!("Hello, macro2!");
-            }
-        });
-        server.start();
-    }
-}
