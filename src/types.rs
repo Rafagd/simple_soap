@@ -20,15 +20,17 @@ impl From<()> for Value {
 }
 
 pub struct Data {
-    pub ty: Type,
-    pub vl: Value,
+    pub name: String,
+    pub ty:   Type,
+    pub vl:   Value,
 }
 
 impl Data {
-    pub fn new(ty: Type) -> Data {
+    pub fn new(name: &str, ty: Type) -> Data {
         Data {
-            ty: ty,
-            vl: Value::Null,
+            name: name.to_string(),
+            ty:   ty,
+            vl:   Value::Null,
         }
     }
 }
@@ -37,6 +39,7 @@ pub type  FnArgs   = Vec<Data>;
 pub type  FnReturn = Data;
 
 pub struct RemoteCall {
+        doc:       String,
     pub name:      String,
         arguments: FnArgs,
         result:    FnReturn,
@@ -45,10 +48,11 @@ pub struct RemoteCall {
 
 impl RemoteCall {
     pub fn new<F: FnMut(&FnArgs) -> FnReturn + Sized + 'static>(
-        name: &str, args: FnArgs, result: FnReturn, body: F
+        doc: &str, name: &str, args: FnArgs, result: FnReturn, body: F
     ) -> RemoteCall
     {
         RemoteCall {
+            doc:       doc.to_string(),
             name:      name.to_string(),
             arguments: args,
             result:    result,
@@ -72,9 +76,20 @@ impl RemoteCall {
 unsafe impl Send for RemoteCall {
 }
 
+/*
 #[macro_export]
 macro_rules! remote {
+    
+    
+    
+    /*
     ($name:ident ( ) -> $result:ident $body:block) => {{
+        remote! {
+            ///
+            $name () -> $result $body
+        }
+    }};
+    ($meta:meta $name:ident ( ) -> $result:ident $body:block) => {{
         use simple_soap::types::*;
 
         let args = vec![
@@ -89,5 +104,6 @@ macro_rules! remote {
                 data
             }
         )
-    }}
+    }} */
 }
+*/

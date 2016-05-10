@@ -9,17 +9,8 @@ use self::hyper::status::StatusCode;
 use self::hyper::uri::RequestUri;
 
 use types::*;
-
-#[derive(Debug)]
-pub enum SoapError {
-    Http(hyper::error::Error),
-}
-              
-impl From<hyper::error::Error> for SoapError {
-    fn from(other: hyper::error::Error) -> SoapError {
-        SoapError::Http(other)
-    }
-}
+use reader::Reader;
+use error::SoapError;
 
 pub struct Server {
     address: String,
@@ -55,15 +46,7 @@ impl Server {
 
             match path.as_str() {
                 "/" => {
-                    let mut buffer = String::new();
-                    let     _      = request.read_to_string(&mut buffer);
-
-                    println!("URI: {:?}", request.uri);
-                    println!("Body: {:?}", buffer);
-
-                    for (name, call) in calls.iter() {
-                        println!("CALL: {}", name);
-                    }
+                    let soap = Reader::from(request);
                 },
                 "/?wsdl" => {
                     let _ = response.send(show_wsdl(&calls).as_bytes());

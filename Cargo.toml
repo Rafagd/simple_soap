@@ -5,3 +5,4 @@ authors = ["Rafael Gomes Dantas <rafagd@gmail.com>"]
 
 [dependencies]
 hyper = "*"
+quick-xml = "*"
