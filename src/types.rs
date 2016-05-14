@@ -1,4 +1,4 @@
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Type {
     Void,
     Int,
@@ -39,10 +39,10 @@ pub type  FnArgs   = Vec<Data>;
 pub type  FnReturn = Data;
 
 pub struct RemoteCall {
-        doc:       String,
+    pub doc:       String,
     pub name:      String,
-        arguments: FnArgs,
-        result:    FnReturn,
+    pub arguments: FnArgs,
+    pub result:    FnReturn,
         body:      Box<FnMut(&FnArgs) -> FnReturn>,
 }
 
