@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+
+use error::*;
+
 #[derive(Clone, PartialEq)]
 pub enum Type {
     Void,
@@ -33,10 +37,17 @@ impl Data {
             vl:   Value::Null,
         }
     }
+
+    pub fn set_value(&mut self, vl: &str) {
+        self.vl = match self.ty {
+            Type::String => Value::String(vl.to_string()),
+            _            => Value::Null,
+        };
+    }
 }
 
-pub type  FnArgs   = Vec<Data>;
-pub type  FnReturn = Data;
+pub type FnArgs   = HashMap<String, Data>;
+pub type FnReturn = Data;
 
 pub struct RemoteCall {
     pub doc:       String,
@@ -60,16 +71,8 @@ impl RemoteCall {
         }
     }
 
-    pub fn call(&mut self, data: Vec<Data>) -> Result<FnReturn, String> {
-        for arg in self.arguments.iter() {
-            for d in data.iter() {
-                if arg.ty != d.ty {
-                    return Err("Error".to_string());
-                }
-            }
-        }
-
-        Ok((self.body)(&data))
+    pub fn call(&mut self) -> Result<FnReturn, SoapError> {
+        Ok((self.body)(&self.arguments))
     }
 }
 
