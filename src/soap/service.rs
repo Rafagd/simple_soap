@@ -1,5 +1,5 @@
-use std::net::{ ToSocketAddrs, SocketAddr };
-use std::str::FromStr;
+use std::collections::HashMap;
+use std::string::ToString;
 use std::sync::{ Arc, Mutex };
 
 extern crate sxd_document;
@@ -8,64 +8,135 @@ use self::sxd_document::parser as xml_parser;
 use types::*;
 use error::SoapError;
 use service;
-use soap::wsdl;
+use soap::wsdl::Wsdl;
+
+pub enum Part {
+    // String-derived
+    Id(String),
+    IdRef(String),
+    Language(String),
+    Name(String),
+    NmToken(String),
+    NormalizedString(String),
+    String(String),
+    Token(String),
+
+    // Date-derived
+    Date(String),
+    Time(String),
+    DateTime(String),
+    Duration(String),
+
+    // Numeric types
+    Byte(i8),
+    Short(i16),
+    Int(i32),
+    Long(i64),
+    UnsignedByte(u8),
+    UnsignedShort(u16),
+    UnsignedInt(u32),
+    UnsignedLong(u64),
+    Decimal(f64),
+    Integer(i64),
+    NegativeInteger(u64),    // -1, -2, -3...
+    PositiveInteger(u64),    // 1, 2, 3...
+    NonNegativeInteger(u64), // 0, 1, 2, 3...
+    NonPositiveInteger(u64), // 0, -1, -2, -3...
+
+    // Misc.
+    Boolean(bool),
+    Base64Binary(String),
+    HexBinary(String),
+    AnyUri(String),
+
+    // Attrs, Content.
+    ComplexType(HashMap<String, Part>, HashMap<String, Part>),
+}
+
+impl Part {
+    pub fn xsd_type(&self) -> String {
+        match self {
+            &Part::String(_) => "xsd:string",
+            _ => "xsd:string",
+        }.to_string()
+    }
+}
+
+pub struct Operation {
+    pub doc:     String,
+    pub name:    String,
+    pub inputs:  HashMap<String, Part>,
+    pub outputs: HashMap<String, Part>,
+    pub closure: Box<FnMut(HashMap<String, Part>) -> HashMap<String, Part>>,
+}
+
+pub struct Options {
+    pub bind_addr:    String,
+    pub namespace:    String,
+    pub service_name: String,
+}
+
+impl Options {
+    pub fn default() -> Options {
+        Options {
+            bind_addr:    String::from(""),
+            namespace:    String::from("server"),
+            service_name: String::from("Service"),
+        }
+    }
+}
 
 pub struct Service {
-    service:   service::Service,
-    namespace: String,
-    wsdl:      Arc<Mutex<String>>,
-    calls:     Arc<Mutex<Vec<RemoteCall>>>,
-    changed:   bool,
+        service:    service::Service,
+    pub options:    Options,
+    pub operations: Arc<Mutex<Vec<Operation>>>,
+        wsdl:       String,
+        changed:    bool,
 }
 
 impl Service {
-    pub fn new<A: ToSocketAddrs>(address: A, namespace: &str) -> Service {
-        let server = address.to_socket_addrs().unwrap().next().unwrap();
-        let listen = SocketAddr::new(
-            FromStr::from_str("0.0.0.0").unwrap(),
-            server.port()
-        );
+    pub fn new(host_name: &str, port: u16) -> Service {
+        Service::new_with_opts(host_name, port, Options::default())
+    }
 
-        let mut service = service::Service::new();
-        service.server_addr = server;
-        service.listen_addr = listen;
-
-        let soap_service = Service {
-            service:   service,
-            namespace: namespace.to_string(),
-            wsdl:      Arc::new(Mutex::new(String::new())),
-            calls:     Arc::new(Mutex::new(vec![])),
-            changed:   false,
+    pub fn new_with_opts(host_name: &str, port: u16, opts: Options)
+        -> Service
+    {
+        let service = if opts.bind_addr == "" {
+            service::Service::new(host_name, port)
+        } else {
+            service::Service::new_with_bind(host_name, 
+                opts.bind_addr.as_str(), port)
+        };
+            
+        let mut soap_service = Service {
+            service:    service,
+            options:    opts,
+            operations: Arc::new(Mutex::new(vec![])),
+            wsdl:       String::new(),
+            changed:    false,
         };
 
-        let buffer = {
-            wsdl::from(namespace, &soap_service)
-        };
-
-        let     mutex = soap_service.wsdl.clone();
-        let mut wsdl  = mutex.lock().unwrap();
-
-        wsdl.clear();
-        wsdl.push_str(buffer.as_str());
-
+        soap_service.wsdl = Wsdl::from(&soap_service).to_string();
         soap_service
     }
 
-    pub fn get_calls<'a>(&'a self) -> Arc<Mutex<Vec<RemoteCall>>> {
-        self.calls.clone()
+    pub fn add_operation(&mut self, operation: Operation) {
+        let mut operations = self.operations.lock().unwrap();
+        operations.push(operation);
+
+        self.changed = true;
+    }
+
+    pub fn get_uri(&self) -> String {
+        self.service.get_uri()
     }
 
     pub fn start(&mut self) -> Result<(), SoapError> {
-        let wsdl_mutex = self.wsdl.clone();
+        let wsdl = self.wsdl.clone();
 
         if self.changed {
-            let buffer = {
-                wsdl::from(self.namespace.as_str(), &self)
-            };
-
-            let mut wsdl_lock = wsdl_mutex.lock().unwrap();
-            wsdl_lock.clear();
-            wsdl_lock.push_str(buffer.as_str());
+            self.wsdl = Wsdl::from(&self).to_string();
         }
 
         self.service.add_route("/", move |request| {
@@ -115,8 +186,6 @@ impl Service {
         });
 
         self.service.add_route("/?wsdl", move |_| {
-            let wsdl = wsdl_mutex.lock().unwrap();
-
             let mut response = service::Response::default();
             response.content = String::from_utf8_lossy(wsdl.as_bytes()).into_owned();
             response

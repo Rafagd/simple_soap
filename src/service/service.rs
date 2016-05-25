@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::{ Debug, Error, Formatter };
-use std::net::SocketAddr;
-use std::str::FromStr;
+use std::string::ToString;
 use std::sync::{ Arc, Mutex };
 
 extern crate hyper;
@@ -17,21 +16,58 @@ use service::error::*;
 use service::{ Request, Response };
 
 pub struct Service {
-    pub listen_addr: SocketAddr,
-    pub server_addr: SocketAddr,
-        routes: Arc<Mutex<HashMap<
-            String,
-            Box<FnMut(Request) -> Response + Send + 'static>
-        >>>,
+    host_name: String,
+    bind_addr: String,
+    port:      u16,
+    ssl:       bool,
+    routes: Arc<Mutex<HashMap<
+        String,
+        Box<FnMut(Request) -> Response + Send + 'static>
+    >>>,
 }
 
 impl Service {
-    pub fn new() -> Service {
+    pub fn new(host: &str, port: u16) -> Service {
+        Service::new_with_bind(host, "0.0.0.0", port)
+    }
+
+    pub fn new_with_bind(host: &str, bind: &str, port: u16) -> Service {
         Service {
-            listen_addr: SocketAddr::from_str("0.0.0.0:80").unwrap(),
-            server_addr: SocketAddr::from_str("127.0.0.1:80").unwrap(),
-            routes:      Arc::new(Mutex::new(HashMap::new())),
+            host_name: host.to_string(),
+            bind_addr: bind.to_string(),
+            port:      port,
+            ssl:       false,
+            routes:    Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn default() -> Service {
+        Service::new("localhost", 80)
+    }
+
+    pub fn get_uri(&self) -> String {
+        let mut uri = if self.ssl {
+            String::from("https://")
+        } else {
+            String::from("http://")
+        };
+
+        uri.push_str(self.host_name.as_str());
+
+        if self.port != 80 {
+            uri.push_str(":");
+            uri.push_str(self.port.to_string().as_str());
+        }
+
+        uri.push_str("/");
+        uri
+    }
+
+    pub fn get_bind(&self) -> String {
+        let mut bind = self.bind_addr.clone();
+        bind.push_str(":");
+        bind.push_str(self.port.to_string().as_str());
+        bind
     }
 
     pub fn add_route<
@@ -43,7 +79,7 @@ impl Service {
     }
 
     pub fn start(&mut self) -> Result<(), SoapError> {
-        let http  = try!(HttpServer::http(self.listen_addr));
+        let http  = try!(HttpServer::http(self.get_bind().as_str()));
         let mutex = self.routes.clone();
 
         let handle = http.handle(
@@ -76,7 +112,7 @@ impl Service {
 
 impl Debug for Service {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "Serving \"{}\", listenning on \"{}\".",
-            self.server_addr, self.listen_addr)
+        write!(f, "Serving \"{}\", listenning on \"{:?}\".",
+            self.get_uri(), self.get_bind())
     }
 }

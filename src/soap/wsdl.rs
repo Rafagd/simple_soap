@@ -1,261 +1,282 @@
-
+use std::string::ToString;
 
 extern crate sxd_document;
 use self::sxd_document::Package;
-use self::sxd_document::dom::{ Document, Element };
+use self::sxd_document::dom::{ Element, Text };
 use self::sxd_document::writer::format_document;
 
-use types::*;
 use soap::Service;
+use soap::service::Operation;
 
-pub fn from(namespace: &str, service: &Service) -> String {
-    let     package  = Package::new();
-    let mut document = package.as_document();
-    let mut root     = document.root();
-
-    root.append_child(
-        definitions(&document, &service, namespace)
-    );
-
-    let mut buffer = Vec::new();
-    format_document(&document, &mut buffer);
-
-    println!("{:?}", String::from_utf8(buffer.clone()));
-
-    String::from_utf8(buffer).unwrap()
+pub struct Wsdl<'a> {
+    service: &'a Service,
+    package: Package,
 }
 
-fn definitions<'a, 'b>(document: &'a Document, service: &'b Service, namespace: &str) -> Element<'a> {
-    let (server_ns, service_ns) = {
-        let string_ns  = namespace.to_string();
-        let mut split  = string_ns.split(".");
-        let server_ns  = split.next().unwrap().to_string();
-        let service_ns = split.next().unwrap().to_string();
-        (server_ns, service_ns)
-    };
+impl<'a> Wsdl<'a> {
+    pub fn from(service: &'a Service) -> Wsdl {
+        let wsdl = Wsdl {
+            service: service,
+            package: Package::new(),
+        };
 
-    let definitions = document.create_element("definitions");
-
-    definitions.set_default_namespace_uri(Some("http://schemas.xmlsoap.org/wsdl/"));
-
-    definitions.set_attribute_value("xmlns:soap",      "http://schemas.xmlsoap.org/wsdl/soap/");
-    definitions.set_attribute_value("xmlns:xsd",       "http://www.w3.org/2001/XMLSchema");
-    definitions.set_attribute_value("xmlns:xsi",       "http://www.w3.org/2001/XMLSchema-instance");
-    definitions.set_attribute_value("xmlns:SOAP-ENV",  "http://schemas.xmlsoap.org/soap/envelope/");
-    definitions.set_attribute_value("xmlns:SOAP-ENC",  "http://schemas.xmlsoap.org/soap/encoding/");
-    definitions.set_attribute_value("xmlns:tns",       namespace);
-    definitions.set_attribute_value("targetNamespace", namespace);
-
-    definitions.append_child(
-        schema_import(document, namespace, vec![
-            "http://schemas.xmlsoap.org/soap/encoding/",
-            "http://schemas.xmlsoap.org/wsdl/",
-        ])
-    );
-
-    let mutex = service.get_calls();
-    let calls = mutex.lock().unwrap();
-
-    for call in calls.iter() {
-        definitions.append_child(
-            register_arguments(document, &call)
-        );
-
-        definitions.append_child(
-            register_return(document, &call)
-        );
+        wsdl.generate();
+        wsdl
     }
 
-    definitions
-}
-
-fn schema_import<'a>(document: &'a Document, namespace: &str, schemas: Vec<&str>) -> Element<'a> {
-    let types  = document.create_element("types");
-
-    let schema = document.create_element("xsd:schema");
-    schema.set_attribute_value("targetNamespace", namespace);
-
-    for sch in schemas.iter() {
-        let import = document.create_element("xsd:import");
-        import.set_attribute_value("namespace", sch);
-
-        schema.append_child(import);
+    fn create_element(&self, tag_name: &str) -> Element {
+        self.package.as_document().create_element(tag_name)
     }
 
-    types.append_child(schema);
-
-    types
-}
-
-fn register_arguments<'a, 'b>(document: &'a Document, call: &'b RemoteCall) -> Element<'a> {
-    let mut call_name = call.name.clone();
-    call_name.push_str("Request");
-
-    let mut message = document.create_element("message");
-    message.set_attribute_value("name", call_name.as_str());
-    
-    for (name, arg) in call.arguments.iter() {
-        let mut part = document.create_element("part");
-        part.set_attribute_value("name", name);
-        part.set_attribute_value("type", type_to_xsd(&arg.vl).as_str());
-
-        message.append_child(part);
+    fn create_text(&self, text: &str) -> Text {
+        self.package.as_document().create_text(text)
     }
 
-    message
-}
+    fn generate(&self) {
+        let definitions = self.create_element("definitions");
 
-fn register_return<'a, 'b>(document: &'a Document, call: &'b RemoteCall) -> Element<'a> {
-    let mut call_name = call.name.clone();
-    call_name.push_str("Response");
+        definitions.set_default_namespace_uri(Some("http://schemas.xmlsoap.org/wsdl/"));
 
-    let mut message = document.create_element("message");
-    message.set_attribute_value("name", call_name.as_str());
-    
-    let mut part = document.create_element("part");
-    part.set_attribute_value("name", "result");
-    part.set_attribute_value("type", type_to_xsd(&call.result.vl).as_str());
+        definitions.set_attribute_value("xmlns:soap",      "http://schemas.xmlsoap.org/wsdl/soap/");
+        definitions.set_attribute_value("xmlns:xsd",       "http://www.w3.org/2001/XMLSchema");
+        definitions.set_attribute_value("xmlns:xsi",       "http://www.w3.org/2001/XMLSchema-instance");
+        definitions.set_attribute_value("xmlns:SOAP-ENV",  "http://schemas.xmlsoap.org/soap/envelope/");
+        definitions.set_attribute_value("xmlns:SOAP-ENC",  "http://schemas.xmlsoap.org/soap/encoding/");
 
-    message.append_child(part);
-    message
-}
+        {
+            let mut urn = String::from("urn:");
+            urn.push_str(self.service.options.namespace.as_str());
 
-fn type_to_xsd(value: &Value) -> String {
-    match value {
-        &Value::String(ref s) => s.clone(),
-        // Error?
-        _ => String::new(),
-    }
-}
-        /*
-        if self.changed {
-            let mut document = Document::new("UTF-8");
-
-            let mut tns = String::from("urn:");
-            tns.push_str(self.namespace.as_str());
-            tns.push_str(".");
-            tns.push_str(self.target_namespace.as_str());
-
-            let mut definitions = Element::new_node("definitions",
-                vec![
-                    ("xmlns",           "http://schemas.xmlsoap.org/wsdl/"),
-                ],
-                {
-
-                    children.push(Element::new_node("portType",
-                        vec![("name", "Registros do WSDLPortType")],
-                        {
-                            let mut children = vec![];
-                            
-                            for call in self.calls.iter() { 
-                                children.push(Element::new_node("operation",
-                                    vec![("name", call.name.as_str())],
-                                    vec![
-                                        Element::new_node("documentation", vec![], vec![
-                                            Element::new_text(call.doc.as_str())
-                                        ]),
-                                        Element::new_node("input", vec![
-                                            ("message", {
-                                                let mut s = String::from("tns:");
-                                                s.push_str(call.name.as_str());
-                                                s.push_str("Request");
-                                                s
-                                            }.as_str())
-                                        ], vec![]),
-                                        Element::new_node("output", vec![
-                                            ("message", {
-                                                let mut s = String::from("tns:");
-                                                s.push_str(call.name.as_str());
-                                                s.push_str("Response");
-                                                s
-                                            }.as_str())
-                                        ], vec![]),
-                                    ]
-                                ));
-                            }
-
-                            children
-                        }
-                    ));
-
-                    children.push(Element::new_node("binding",
-                        vec![
-                            ("name", "Registros do WSDLBinding"),
-                            ("type", "tns:Registros do WSDLPortType"),
-                        ],
-                        {
-                            let mut children = vec![
-                                Element::new_node("soap:binding", vec![
-                                    ("style", "rpc"),
-                                    ("transport", "http://schemas.xmlsoap.org/soap/http"),
-                                ], vec![]),
-                            ];
-
-                            for call in self.calls.iter() {
-                                let mut tns = String::from("urn:");
-                                tns.push_str(self.namespace.as_str());
-                                tns.push_str(".");
-                                tns.push_str(call.name.as_str());
-
-                                let mut tns_anchor = tns.clone();
-                                tns_anchor.push_str("#");
-                                tns_anchor.push_str(call.name.as_str());
-
-                                children.push(Element::new_node("operation",
-                                    vec![("name", call.name.as_str())],
-                                    vec![
-                                        Element::new_node("soap:operation", vec![
-                                            ("soapAction", tns_anchor.as_str()),
-                                            ("style", "rpc"),
-                                        ], vec![]),
-                                        Element::new_node("input", vec![], vec![
-                                            Element::new_node("soap:body", vec![
-                                                ("use", "encoded"),
-                                                ("namespace", tns.as_str()),
-                                                ("encodingStyle", "http://schemas.xmlsoap.org/soap/encoding/"),
-                                            ], vec![]),
-                                        ]),
-                                        Element::new_node("output", vec![], vec![
-                                            Element::new_node("soap:body", vec![
-                                                ("use", "encoded"),
-                                                ("namespace", tns.as_str()),
-                                                ("encodingStyle", "http://schemas.xmlsoap.org/soap/encoding/"),
-                                            ], vec![]),
-                                        ]),
-                                    ],
-                                ));
-                            }
-
-                            children
-                        }
-                    ));
-                    
-                    children.push(Element::new_node("service",
-                        vec![("name", "Registros do WSDL")],
-                        vec![
-                            Element::new_node("port",
-                                vec![
-                                    ("name", "Registros do WSDLPort"),
-                                    ("binding", "tns:Registros do WSDLBinding"),
-                                ],
-                                vec![
-                                    Element::new_node("soap:address", vec![
-                                        ("location", "http://localhost:1337/"),
-                                    ], vec![]),
-                                ]
-                            )
-                        ]
-                    ));
-
-                    children
-                }
-            );
-
-            document.set_root(definitions);
-
-            self.bytes   = document.to_string().into_bytes();
-            self.changed = false;
+            definitions.set_attribute_value("xmlns:tns",       urn.as_str());
+            definitions.set_attribute_value("targetNamespace", urn.as_str());
         }
 
-        self.bytes.as_slice()
-            */
+        definitions.append_child(
+            self.import_schemas(vec![
+                "http://schemas.xmlsoap.org/soap/encoding/",
+                "http://schemas.xmlsoap.org/wsdl/",
+            ])
+        );
+
+        {
+            let operations = self.service.operations.lock().unwrap();
+
+            for operation in operations.iter() {
+                definitions.append_child(
+                    self.register_inputs(&operation)
+                );
+
+                definitions.append_child(
+                    self.register_outputs(&operation)
+                );
+            }
+        }
+
+        definitions.append_child(
+            self.register_ports()
+        );
+
+        definitions.append_child(
+            self.register_bindings()
+        );
+
+        definitions.append_child(
+            self.register_service()
+        );
+
+        self.package.as_document().root().append_child(definitions);
+    }
+
+    fn import_schemas(&self, schemas: Vec<&str>) -> Element {
+        let types  = self.create_element("types");
+
+        let schema = self.create_element("xsd:schema");
+        schema.set_attribute_value("targetNamespace",
+            self.service.options.namespace.as_str());
+
+        for sch in schemas.iter() {
+            let import = self.create_element("xsd:import");
+            import.set_attribute_value("namespace", sch);
+
+            schema.append_child(import);
+        }
+
+        types.append_child(schema);
+
+        types
+    }
+
+    fn register_inputs(&self, operation: &Operation) -> Element {
+        let mut name = operation.name.clone();
+        name.push_str("Request");
+
+        let message = self.create_element("message");
+        message.set_attribute_value("name", name.as_str());
+        
+        for (name, arg) in operation.inputs.iter() {
+            let part = self.create_element("part");
+            part.set_attribute_value("name", name);
+            part.set_attribute_value("type", arg.xsd_type().as_str());
+
+            message.append_child(part);
+        }
+
+        message
+    }
+
+    fn register_outputs(&self, operation: &Operation) -> Element {
+        let mut name = operation.name.clone();
+        name.push_str("Response");
+
+        let message = self.create_element("message");
+        message.set_attribute_value("name", name.as_str());
+        
+        for (name, arg) in operation.outputs.iter() {
+            let part = self.create_element("part");
+            part.set_attribute_value("name", name);
+            part.set_attribute_value("type", arg.xsd_type().as_str());
+
+            message.append_child(part);
+        }
+
+        message
+    }
+
+    fn register_ports(&self) -> Element {
+        let mut port_name = self.service.options.service_name.clone();
+        port_name.push_str("PortType");
+
+        let port = self.create_element("portType");
+        port.set_attribute_value("name", port_name.as_str());
+
+        let operations = self.service.operations.lock().unwrap();
+
+        for op in operations.iter() {
+            let operation = self.create_element("operation");
+            operation.set_attribute_value("name", op.name.as_str());
+
+            let doc = self.create_element("documentation");
+            doc.append_child(self.create_text(op.doc.as_str()));
+
+            let mut input_str = String::from("tns:");
+            input_str.push_str(op.name.as_str());
+            input_str.push_str("Request");
+
+            let input = self.create_element("input");
+            input.set_attribute_value("message", input_str.as_str());
+
+            let mut output_str = String::from("tns:");
+            output_str.push_str(op.name.as_str());
+            output_str.push_str("Response");
+
+            let output = self.create_element("output");
+            output.set_attribute_value("message", output_str.as_str());
+
+            operation.append_child(doc);
+            operation.append_child(input);
+            operation.append_child(output);
+            port.append_child(operation);
+        }
+
+        port
+    }
+
+    fn register_bindings(&self) -> Element {
+        let mut port_name = String::from("tns:");
+        port_name.push_str(self.service.options.service_name.as_str());
+        port_name.push_str("PortType");
+
+        let mut bind_name = self.service.options.service_name.clone();
+        bind_name.push_str("Binding");
+
+        let server_ns = {
+            let string_ns = self.service.options.namespace.to_string();
+            let mut split = string_ns.split(".");
+            split.next().unwrap().to_string()
+        };
+
+        let bind = self.create_element("binding");
+        bind.set_attribute_value("name", bind_name.as_str());
+        bind.set_attribute_value("type", port_name.as_str());
+
+        let soap_bind = self.create_element("soap:binding");
+        soap_bind.set_attribute_value("style", "rpc");
+        soap_bind.set_attribute_value("transport", "http://schemas.xmlsoap.org/soap/http");
+        bind.append_child(soap_bind);
+        
+        let operations = self.service.operations.lock().unwrap();
+
+        for op in operations.iter() {
+            let mut tns = String::from("urn:");
+            tns.push_str(server_ns.as_str());
+            tns.push_str(".");
+            tns.push_str(op.name.as_str());
+
+            let mut tns_anchor = tns.clone();
+            tns_anchor.push_str("#");
+            tns_anchor.push_str(op.name.as_str());
+
+            let operation = self.create_element("operation");
+            operation.set_attribute_value("name", op.name.as_str());
+
+            let soap_op = self.create_element("soap:operation");
+            soap_op.set_attribute_value("soapAction", tns_anchor.as_str());
+            soap_op.set_attribute_value("style", "rpc");
+
+            let soap_body = self.create_element("soap:body");
+            soap_body.set_attribute_value("use", "encoded");
+            soap_body.set_attribute_value("namespace", tns.as_str());
+            soap_body.set_attribute_value("encodingStyle", "http://schemas.xmlsoap.org/soap/encoding/");
+
+            let soap_input = self.create_element("input");
+            soap_input.append_child(soap_body.clone());
+
+            let soap_output = self.create_element("output");
+            soap_output.append_child(soap_body);
+
+            operation.append_child(soap_op);
+            operation.append_child(soap_input);
+            operation.append_child(soap_output);
+
+            bind.append_child(operation);
+        }
+
+        bind
+    }
+
+    fn register_service(&self) -> Element {
+        let service_name = &self.service.options.service_name;
+
+        let mut port_name = service_name.clone();
+        port_name.push_str("Port");
+
+        let mut bind_name = String::from("tns:");
+        bind_name.push_str(service_name.as_str());
+        bind_name.push_str("Binding");
+        
+
+        let srv = self.create_element("service");
+        srv.set_attribute_value("name", service_name.as_str());
+
+        let port = self.create_element("port");
+        port.set_attribute_value("name", port_name.as_str());
+        port.set_attribute_value("binding", bind_name.as_str());
+
+        let address = self.create_element("soap:address");
+        address.set_attribute_value("location", self.service.get_uri().as_str());
+
+        port.append_child(address);
+        srv.append_child(port);
+
+        srv
+    }
+}
+
+impl<'a> ToString for Wsdl<'a> {
+    fn to_string(&self) -> String {
+        let mut buffer = Vec::new();
+        let _ = format_document(&self.package.as_document(), &mut buffer);
+        String::from_utf8(buffer).unwrap()
+    }
+}
+
