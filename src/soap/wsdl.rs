@@ -5,8 +5,7 @@ use self::sxd_document::Package;
 use self::sxd_document::dom::{ Element, Text };
 use self::sxd_document::writer::format_document;
 
-use soap::Service;
-use soap::service::Operation;
+use soap::{ Operation, Service };
 
 pub struct Wsdl<'a> {
     service: &'a Service,
@@ -61,7 +60,7 @@ impl<'a> Wsdl<'a> {
         {
             let operations = self.service.operations.lock().unwrap();
 
-            for operation in operations.iter() {
+            for (_, operation) in operations.iter() {
                 definitions.append_child(
                     self.register_inputs(&operation)
                 );
@@ -151,7 +150,7 @@ impl<'a> Wsdl<'a> {
 
         let operations = self.service.operations.lock().unwrap();
 
-        for op in operations.iter() {
+        for (_, op) in operations.iter() {
             let operation = self.create_element("operation");
             operation.set_attribute_value("name", op.name.as_str());
 
@@ -206,7 +205,7 @@ impl<'a> Wsdl<'a> {
         
         let operations = self.service.operations.lock().unwrap();
 
-        for op in operations.iter() {
+        for (_, op) in operations.iter() {
             let mut tns = String::from("urn:");
             tns.push_str(server_ns.as_str());
             tns.push_str(".");
