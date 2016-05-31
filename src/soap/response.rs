@@ -4,23 +4,25 @@ extern crate sxd_document;
 use self::sxd_document::Package;
 use self::sxd_document::writer::format_document;
 
-use soap::Part;
+use soap::{ Fault, Part };
 
 pub struct Response {
     operation: String,
     responses: HashMap<String, Part>,
+    fault:     Option<Fault>,
 }
 
 impl Response {
-    pub fn from(operation: &str, responses: HashMap<String, Part>) -> Response {
+    pub fn new() -> Response {
         Response {
-            operation: operation.to_string(),
-            responses: responses,
+            operation: String::new(),
+            responses: hashmap!{},
+            fault:     None,
         }
     }
 
-    pub fn not_found() -> String {
-        String::new()
+    pub fn fault(&mut self, fault: Fault) {
+        self.fault = Some(fault);
     }
 
     pub fn to_xml_string(&self) -> String {
@@ -34,18 +36,18 @@ impl Response {
 
         let body = document.create_element("SOAP-ENV:Body");
 
-        let res_name = String::from("ns1:");
+        let mut res_name = String::from("ns1:");
         res_name.push_str(self.operation.as_str());
         res_name.push_str("Response");
 
         let res = document.create_element(res_name.as_str());
 
-        for (name, part) in self.responses {
+        for (_, part) in self.responses.iter() {
             let ret = document.create_element("return");
             ret.set_attribute_value("xsi:type", part.xsd_type().as_str());
 
             let content = match part {
-                Part::String(string) => string,
+                &Part::String(ref string) => string.clone(),
                 _ => String::new(),
             };
 
@@ -54,6 +56,11 @@ impl Response {
             }
             
             res.append_child(ret);
+        }
+
+        if let Some(ref fault) = self.fault {
+            let res_fault = fault.to_xml(&document);
+            body.append_child(res_fault);
         }
 
         body.append_child(res);

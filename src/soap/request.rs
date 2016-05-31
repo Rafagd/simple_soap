@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use service::Request as ServiceRequest;
+
 extern crate sxd_document;
 use self::sxd_document::dom::Document;
 
@@ -11,7 +13,7 @@ pub struct Request {
 }
 
 impl Request {
-    fn from(document: Document) -> Request {
+    pub fn from(request: ServiceRequest) -> Request {
         Request {
             operation: String::new(),
             arguments: hashmap!{},

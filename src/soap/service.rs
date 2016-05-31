@@ -1,15 +1,14 @@
 use std::collections::HashMap;
-use std::ops::Deref;
+use std::ops::DerefMut;
 use std::string::ToString;
 use std::sync::{ Arc, Mutex };
 
 extern crate sxd_document;
 use self::sxd_document::parser as xml_parser;
 
-use types::*;
 use error::SoapError;
 use service;
-use soap::{ Operation, Options, Request, Response };
+use soap::{ Operation, Options, Request };
 use soap::wsdl::Wsdl;
 
 pub struct Service {
@@ -53,29 +52,24 @@ impl Service {
         let wsdl       = Wsdl::from(&self).to_string();
         let operations = self.operations.clone();
 
+        let mut not_found = Operation::not_found();
+
         self.service.add_route("/", move |request| {
-            let document = xml_parser::parse(request.content.as_str())
-                .unwrap();
+            let req = Request::from(request);
 
-            let request = Request::from(document.as_document());
+            let mut lock = operations.lock().unwrap();
+            let     find = lock.get_mut(req.operation.as_str());
 
-            let operation = {
-                let lock = operations.lock().unwrap();
-                let find = lock.get(request.operation.as_str());
-
-                match find {
-                    Some(op) => op,
-                    None => &Operation::not_found(),
-                }
+            let mut operation = match find {
+                Some(op) => op,
+                None => &mut not_found,
             };
 
-            let response = service::Response::default();
+            let fun = operation.closure.deref_mut();
+            let res = fun(req);
 
-            response.content = Response::from(
-                operation.as_str(),
-                operation.closure.deref()(request.arguments)
-            ).to_xml_string();
-
+            let mut response = service::Response::default();
+            response.content = res.to_xml_string();
             response
         });
 
