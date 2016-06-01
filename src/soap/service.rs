@@ -3,9 +3,6 @@ use std::ops::DerefMut;
 use std::string::ToString;
 use std::sync::{ Arc, Mutex };
 
-extern crate sxd_document;
-use self::sxd_document::parser as xml_parser;
-
 use error::SoapError;
 use service;
 use soap::{ Operation, Options, Request };
@@ -65,8 +62,10 @@ impl Service {
                 None => &mut not_found,
             };
 
-            let fun = operation.closure.deref_mut();
-            let res = fun(req);
+            let     fun = operation.closure.deref_mut();
+            let mut res = fun(req);
+
+            res.operation = operation.name.clone();
 
             let mut response = service::Response::default();
             response.content = res.to_xml_string();

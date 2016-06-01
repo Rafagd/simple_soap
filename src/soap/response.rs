@@ -7,9 +7,9 @@ use self::sxd_document::writer::format_document;
 use soap::{ Fault, Part };
 
 pub struct Response {
-    operation: String,
-    responses: HashMap<String, Part>,
-    fault:     Option<Fault>,
+    pub operation: String,
+    pub responses: HashMap<String, Part>,
+        fault:     Option<Fault>,
 }
 
 impl Response {
